@@ -93,9 +93,14 @@ class Sheets:
             return 0
 
     # ---- 인벤토리 쓰기(시트명 없이 A1) ----
-    def write_int(self, r: int, c: int, val: int):
-        a1 = _a1(r,c)
-        self._wq_inv.put({"range": a1, "values": [[val if val > 0 else ""]]})
+    def write_int(self, r, c, val: int):
+        # 음수 방지: 최소 0
+        if val < 0:
+            val = 0
+
+        rng = f"{self.inv.title}!{gspread.utils.rowcol_to_a1(r, c)}"
+        # 0도 "0"으로 기록 (이전: 0이면 "")
+        self._wq.put([{"range": rng, "values": [[str(val)]]}])
 
     # ---- 배치 drain helpers ----
     def _drain_dict_jobs(self, q:queue.Queue, first, budget_ms:int, max_n:int):
