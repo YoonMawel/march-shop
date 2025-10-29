@@ -23,7 +23,7 @@ class Sheets:
 
         # 워크시트들(없으면 생성 + 헤더)
         self.shop = self._get_or_create_ws(Config.WS_SHOP,
-            ["아이템명","가격","설명","유형","효과값","일일한도"]) # 물품목록시트
+            ["아이템명","구매가","판매가","설명","유형","효과","일일한도"]) # 물품목록시트
         self.inv  = self._get_or_create_ws(Config.WS_INV, ["아이템명"]) # 가방시트
         self.rec  = self._get_or_create_ws(Config.WS_RECIPE, ["출력아이템","출력수량","재료키"]) # 레시피시트
         self.jobs = self._get_or_create_ws(Config.WS_JOBS, ["유저","닉네임","날짜","지급코인"]) # 아르바이트시트
@@ -94,13 +94,11 @@ class Sheets:
 
     # ---- 인벤토리 쓰기(시트명 없이 A1) ----
     def write_int(self, r, c, val: int):
-        # 음수 방지: 최소 0
         if val < 0:
             val = 0
-
-        rng = f"{self.inv.title}!{gspread.utils.rowcol_to_a1(r, c)}"
-        # 0도 "0"으로 기록
-        self._wq_inv.put([{"range": rng, "values": [[str(val)]]}])
+        a1 = rowcol_to_a1(r, c)  # 시트명 붙이지 말 것
+        # 0도 "0"으로 기록하려면 str(val); 빈칸으로 하려면 "" 사용
+        self._wq_inv.put({"range": a1, "values": [[str(val)]]})
 
     # ---- 배치 drain helpers ----
     def _drain_dict_jobs(self, q:queue.Queue, first, budget_ms:int, max_n:int):
@@ -116,17 +114,18 @@ class Sheets:
     # ---- writers ----
     def _writer_inv(self):
         while True:
-            job = self._wq_inv.get()
-            if job is None:
+            first = self._wq_inv.get()
+            if first is None:
                 break
             try:
-                batch = self._drain_dict_jobs(self._wq_inv, job, 30, 200)
+                batch = self._drain_dict_jobs(self._wq_inv, first, 30, 200)
                 # 같은 셀은 마지막 값만 남기기
                 coalesced: Dict[str, List[List[str]]] = {}
-                for j in batch:
+                for j in batch:  # j는 dict
                     coalesced[j["range"]] = j["values"]
                 data = [{"range": rng, "values": vals} for rng, vals in coalesced.items()]
                 try:
+                    # Worksheet.batch_update는 시트명 없는 A1 범위를 받는다
                     self.inv.batch_update(data)
                 except Exception:
                     for j in data:
