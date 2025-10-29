@@ -99,8 +99,8 @@ class Sheets:
             val = 0
 
         rng = f"{self.inv.title}!{gspread.utils.rowcol_to_a1(r, c)}"
-        # 0도 "0"으로 기록 (이전: 0이면 "")
-        self._wq.put([{"range": rng, "values": [[str(val)]]}])
+        # 0도 "0"으로 기록
+        self._wq_inv.put([{"range": rng, "values": [[str(val)]]}])
 
     # ---- 배치 drain helpers ----
     def _drain_dict_jobs(self, q:queue.Queue, first, budget_ms:int, max_n:int):
