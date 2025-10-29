@@ -318,30 +318,44 @@ class Dispatch:
 
             if cmd == "craft":
                 ings = [x.strip() for x in p["ings"]]
-                match = self.sh.find_recipe(ings)
-
-                if not match:
-                    return self.bot.reply(st, f"해당 레시피는 존재하지 않습니다. 재료는 소모되지 않습니다.")
-
-                out_item, out_qty = match
+                # 재료 필요 수량 집계 (같은 재료 중복 입력 허용)
                 need = Counter(ings)
-                user_col = self.sh.ensure_user(acct)
 
+                # 1) 보유량 사전 검증 (부족하면 아무 것도 소모되지 않음)
+                user_col = self.sh.ensure_user(acct)
                 for name, q in need.items():
                     row = self.sh.row_of(name)
                     owned = self.sh.read_int(row, user_col)
-
                     if owned < q:
-                        return self.bot.reply(st, f"{nick}이/가 보유한 재료가 부족합니다. : {name} x{q} (보유 {owned})")
+                        return self.bot.reply(
+                            st,
+                            f"{nick}이/가 보유한 재료가 부족합니다: {name} x{q} (보유 {owned})"
+                        )
 
+                # 2) 충분하면 재료를 '항상' 차감
                 for name, q in need.items():
                     self.svc.remove_item(acct, name, q)
-                self.svc.add_item(acct, out_item, out_qty)
 
-                key = Sheets.norm_key(ings)
-                self.sh.public_recipe_append(out_item, out_qty, key, acct, nick, today_str())
+                # 3) 레시피 매칭 → 성공 시 결과 지급 + 공개레시피(선택) 기록
+                match = self.sh.find_recipe(ings)
+                if match:
+                    out_item, out_qty = match
+                    self.svc.add_item(acct, out_item, out_qty)
 
-                return self.bot.reply(st, f"{nick}이/가 제작을 완료하였습니다. → {out_item} x{out_qty}")
+                    # 공개 레시피 자동 기재 유지 (성공시에만)
+                    key = Sheets.norm_key(ings)
+                    self.sh.public_recipe_append(
+                        out_item, out_qty, key, acct, nick, today_str()
+                    )
+
+                    return self.bot.reply(
+                        st, f"{nick}이/가 제작을 완료했습니다. → {out_item} x{out_qty}"
+                    )
+                else:
+                    # 매칭 실패: 재료는 이미 소모됨
+                    return self.bot.reply(
+                        st, f"레시피가 없습니다. 입력한 재료는 소모되었습니다."
+                    )
 
             if cmd == "job":
                 today = today_str()
