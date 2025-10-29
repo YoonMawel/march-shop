@@ -355,9 +355,9 @@ class Dispatch:
 
                 return self.bot.reply(st, f"{nick}의 아르바이트가 완료되었습니다. +{reward} {Config.CURRENCY}")
 
-        except Exception:
+        except Exception as e:
             logging.exception("processing error")
-            self.bot.reply(st, "처리 중 오류")
+            self.bot.reply(st, f"처리 중 오류: {type(e).__name__}: {e}")
 
 class Listener(StreamListener):
     def __init__(self, disp: 'Dispatch'):
