@@ -149,52 +149,79 @@ class Dispatch:
                 items = p["items"]  # [("아이템명",수량), ...]
 
                 if not items:
-                    return self.bot.reply(st, f"구매하려는 항목이 비어 있습니다.")
+                    return self.bot.reply(st, "구매하려는 항목이 비어 있습니다.")
 
                 mp = self.svc.shop_map()
                 unknown = [name for name, _ in items if name not in mp]
 
                 if unknown:
-                    return self.bot.reply(st, f"해당 아이템은 상점에 등록되어 있지 않습니다. 총괄계에 별도 문의 부탁드립니다. : {', '.join(unknown)}")
+                    # 오류 2: 물품 미존재
+                    return self.bot.reply(
+                        st,
+                        "해당 물품은 상점에 존재하지 않습니다. "
+                        "오타가 없는지 점검 부탁드리며, "
+                        "오기재 · 미등록 등으로 판단될 시 운영 계정(@MARCH)으로 문의해 주십시오.\n\n"
+                        f"대상 물품 ― {', '.join(unknown)}"
+                    )
 
-                # 일일 한도(아이템별) & 총액 계산 (KST)
+                # 일일 한도(아이템별) & 총액 계산
                 today = today_str()
                 total = 0
 
                 for name, qty in items:
                     buy_price, sell_price, desc, typ, eff, limit = mp[name]
                     if limit and limit > 0:
-                        # 이미 오늘 산 개수
                         if not self.svc.check_daily_limit(acct, name, limit, today, extra=qty):
                             return self.bot.reply(
-                                st, f"'{name}'은(는) 하루 {limit}회/{limit}개까지 구매 가능합니다."
+                                st,
+                                f"'{name}'은(는) 하루 {limit}회/{limit}개까지 구매 가능합니다."
                             )
                     total += buy_price * qty
 
                 bal = self.svc.balance(acct)
-
                 if bal < total:
-                    return self.bot.reply(st, f"{nick}의 {Config.CURRENCY}이/가 부족합니다. (필요 {total}, 보유 {bal})")
+                    # 오류 1: 화폐 부족
+                    return self.bot.reply(
+                        st,
+                        f"주머니를 털어 보아도 {Config.CURRENCY} {total}개가 보이지 않는다. 다시 확인해 보자.\n\n"
+                        f"현재 보유 수량 ― {bal}개"
+                    )
 
                 # 결제 1회
                 self.svc.add_bal(acct, -total)
 
-                # 지급 + 구매기록(아이템별) 남기기
+                # 지급 + 구매기록
                 ts = now_ts()
                 for name, qty in items:
                     self.svc.add_item(acct, name, qty)
-                    # 기록은 아이템별로 한 줄씩
                     self.svc.record_purchase(acct, nick, name, qty, ts)
 
-                # 요약 메시지
-                lines = [f"- {n} x{q}" for n, q in items]
+                # --- 연출 메시지 ---
+                if len(items) == 1:
+                    name, qty = items[0]
+                    buy_price, sell_price, desc, typ, eff, limit = mp[name]
+                    script = desc or ""
+                    msg = (
+                        f"빈 통에 {Config.CURRENCY}을 넣자 {name} 이/가 나타났다.\n\n"
+                        f"― {name}x{qty}\n"
+                    )
+                    if script:
+                        msg += f"{script}\n\n"
+                    msg += (
+                        f"구매 금액 ― {total} {Config.CURRENCY}\n"
+                        f"잔액 ― {bal - total} {Config.CURRENCY}"
+                    )
+                else:
+                    lines = [f"― {n}x{q}" for n, q in items]
+                    msg = (
+                            f"빈 통에 {Config.CURRENCY}을 넣자 여러 아이템이 나타났다.\n\n"
+                            + "\n".join(lines)
+                            + "\n\n"
+                              f"구매 금액 ― {total} {Config.CURRENCY}\n"
+                              f"잔액 ― {bal - total} {Config.CURRENCY}"
+                    )
 
-                return self.bot.reply(
-                    st,
-                    f"{nick}이/가 아이템을 구매하였습니다.\n" +
-                    "\n".join(lines) +
-                    f"\n총액 {total} {Config.CURRENCY}, 잔액 {bal - total} {Config.CURRENCY}"
-                )
+                return self.bot.reply(st, msg)
 
             if cmd == "use":
                 item = p["item"]
@@ -227,48 +254,67 @@ class Dispatch:
                     g_item, g_qty, g_script = self.svc.gacha_roll(table)
 
                     if g_item:
+                        # 아이템 or 화폐 획득
                         if g_item == Config.CURRENCY:
                             self.svc.add_bal(acct, g_qty)
-                            msg = f"{nick}이/가 {item}을 사용합니다. 획득: +{g_qty} {Config.CURRENCY}"
                         else:
                             self.svc.add_item(acct, g_item, g_qty)
-                            msg = f"{nick}이/가 {item}을 사용합니다. 획득: {g_item} x{g_qty}"
-
+                        base = f"두근두근, {item} 을/를 사용해 보자⋯.\n\n"
                         if g_script:
-                            msg += f"\n{g_script}"
-                        return self.bot.reply(st, msg)
-
+                            base += f"{g_script}\n"
+                        if g_item == Config.CURRENCY:
+                            base += f"획득 ― {Config.CURRENCY} {g_qty}개"
+                        else:
+                            base += f"획득 ― {g_item}x{g_qty}"
+                        return self.bot.reply(st, base)
                     else:
-                        return self.bot.reply(st, g_script or f"{nick}이/가 {item}을(를) 사용했지만 아무 일도 일어나지 않았습니다…")
-
+                        # 아이템은 없지만 스크립트만 있을 수도 있음
+                        msg = "두근두근, {0} 을/를 사용해 보자⋯.\n\n".format(item)
+                        if g_script:
+                            msg += g_script
+                        else:
+                            msg += "⋯아무 일도 일어나지 않았다."
+                        return self.bot.reply(st, msg)
                 else:
                     return self.bot.reply(st, f"{nick}님, {item} 1개 사용")
 
-            if cmd == "sell": # 판매
+            if cmd == "sell":  # 판매
                 items = p["items"]
 
                 if not items:
-                    return self.bot.reply(st, f"판매하려는 항목이 비어 있습니다.")
+                    return self.bot.reply(st, "판매하려는 항목이 비어 있습니다.")
 
                 mp = self.svc.shop_map()
                 unknown = [name for name, _ in items if name not in mp]
 
                 if unknown:
-                    return self.bot.reply(st, f"해당 아이템은 상점에 등록되어 있지 않습니다. 총괄계에 별도 문의 부탁드립니다. : {', '.join(unknown)}")
+                    # 오류 2: 물품 미존재
+                    return self.bot.reply(
+                        st,
+                        "해당 물품은 상점에 존재하지 않습니다. "
+                        "오타가 없는지 점검 부탁드리며, "
+                        "오기재 · 미등록 등으로 판단될 시 운영 계정(@MARCH)으로 문의해 주십시오.\n\n"
+                        f"대상 물품 ― {', '.join(unknown)}"
+                    )
 
                 # 보유량 사전검증
                 lack = []
                 user_col = self.sh.ensure_user(acct)
-
                 for name, qty in items:
                     row = self.sh.row_of(name)
                     owned = self.sh.read_int(row, user_col)
                     if owned < qty:
                         lack.append(f"{name} x{qty}(보유 {owned})")
-                if lack:
-                    return self.bot.reply(st, f"{nick}의 아이템 수량 부족: " + ", ".join(lack))
 
-                # 판매 단가: 시트 '판매가' 열 사용 (비어 있으면 service에서 구매가로 기본 처리)
+                if lack:
+                    # 오류 1: 아이템 부족
+                    return self.bot.reply(
+                        st,
+                        "주머니를 털어 보아도 필요한 아이템이 보이지 않는다. 다시 확인해 보자.\n\n"
+                        f"현재 보유 수량 ― {', '.join(lack)}"
+                    )
+
+                # 판매 금액 계산 (판매가 사용)
                 revenue = 0
                 for name, qty in items:
                     buy_price, sell_price, *_ = mp[name]
@@ -282,80 +328,131 @@ class Dispatch:
                 self.svc.add_bal(acct, revenue)
 
                 bal_after = bal_before + revenue
-                lines = [f"- {n} x{q}" for n, q in items]
 
-                return self.bot.reply(
-                    st,
-                    f"{nick}이/가 아이템을 판매하였습니다.\n" +
-                    "\n".join(lines) +
-                    f"\n판매액 +{revenue} {Config.CURRENCY}, 현재 {bal_after} 보유중"
-                )
+                if len(items) == 1:
+                    name, qty = items[0]
+                    msg = (
+                        f"빈 통에 {name} 을/를 넣자 {Config.CURRENCY}이 나타났다.\n\n"
+                        f"― {name}x{qty}\n\n"
+                        f"판매 금액 ― {revenue} {Config.CURRENCY}\n"
+                        f"잔액 ― {bal_after} {Config.CURRENCY}"
+                    )
+                else:
+                    lines = [f"― {n}x{q}" for n, q in items]
+                    msg = (
+                            f"빈 통에 여러 아이템을 넣자 {Config.CURRENCY}이 나타났다.\n\n"
+                            + "\n".join(lines)
+                            + "\n\n"
+                              f"판매 금액 ― {revenue} {Config.CURRENCY}\n"
+                              f"잔액 ― {bal_after} {Config.CURRENCY}"
+                    )
+
+                return self.bot.reply(st, msg)
 
             if cmd == "give":
-                target = p["target"];
-                thing = p["thing"];
+                target = p["target"].strip()
+                thing = p["thing"].strip()
                 qty = p.get("qty", 1)
 
                 if qty <= 0:
-                    return self.bot.reply(st, f"양도 수량은 1 이상이어야 합니다.")
+                    return self.bot.reply(st, "양도 수량은 1 이상이어야 합니다.")
+
+                if not self.sh.user_exists(target): #대상 검증
+                    return self.bot.reply(
+                        st,
+                        "양도 대상이 유저 목록에 존재하지 않습니다. 아이디를 다시 확인해 주세요.\n\n"
+                        f"양도 대상 ― @{target}"
+                    )
+
+                #target 유효성(아이디 포맷 등) 검증은 이미 따로 했다면 그대로 유지
 
                 if thing == Config.CURRENCY:
+                    # 화폐 양도
                     try:
                         self.svc.transfer_bal(acct, target, qty)
                     except ValueError:
-                        return self.bot.reply(st, f"{nick}의 {Config.CURRENCY}가 부족합니다.")
-                    return self.bot.reply(st, f"{nick}이/가 @{target}에게 {Config.CURRENCY} {qty}개를 양도했습니다.")
+                        return self.bot.reply(
+                            st,
+                            f"주머니를 털어 보아도 {Config.CURRENCY} {qty}개가 보이지 않는다. 다시 확인해 보자.\n\n"
+                            f"현재 보유 수량 ― {self.svc.balance(acct)}개"
+                        )
+
+                    msg = (
+                        f"{Config.CURRENCY} {qty}개 양도가 완료되었다.\n\n"
+                        f"양도 대상 ― @{target}"
+                    )
+                    return self.bot.reply(st, msg)
 
                 else:
+                    # 아이템 양도
                     try:
                         self.svc.remove_item(acct, thing, qty)
-
                     except ValueError:
-                        return self.bot.reply(st, f"{nick}의 보유 수량 부족: {thing} x{qty}")
+                        return self.bot.reply(
+                            st,
+                            f"주머니를 털어 보아도 {thing} {qty}개가 보이지 않는다. 다시 확인해 보자.\n\n"
+                            "현재 보유 수량은 인벤토리 시트를 확인해 주세요."
+                        )
 
                     self.svc.add_item(target, thing, qty)
-                    return self.bot.reply(st, f"{nick}이/가 @{target}에게 {thing} x{qty}를 양도했습니다.")
+                    msg = (
+                        f"{thing} {qty}개 양도가 완료되었다.\n\n"
+                        f"양도 대상 ― @{target}"
+                    )
+                    return self.bot.reply(st, msg)
 
             if cmd == "craft":
                 ings = [x.strip() for x in p["ings"]]
-                # 재료 필요 수량 집계 (같은 재료 중복 입력 허용)
-                need = Counter(ings)
+                match = self.sh.find_recipe(ings)
 
-                # 1) 보유량 사전 검증 (부족하면 아무 것도 소모되지 않음)
+                # 재료 필요 수량 집계
+                need = Counter(ings)
                 user_col = self.sh.ensure_user(acct)
+
+                # 보유량 검증
+                lack = []
                 for name, q in need.items():
                     row = self.sh.row_of(name)
                     owned = self.sh.read_int(row, user_col)
                     if owned < q:
-                        return self.bot.reply(
-                            st,
-                            f"{nick}이/가 보유한 재료가 부족합니다: {name} x{q} (보유 {owned})"
-                        )
+                        lack.append(f"{name} x{q}(보유 {owned})")
 
-                # 2) 충분하면 재료를 '항상' 차감
+                if lack:
+                    # 오류 1: 재료 부족
+                    return self.bot.reply(
+                        st,
+                        "주머니를 털어 보아도 필요한 재료가 보이지 않는다. 다시 확인해 보자.\n\n"
+                        f"현재 보유 수량 ― {', '.join(lack)}"
+                    )
+
+                # 재료는 성공/실패에 관계없이 소모
                 for name, q in need.items():
                     self.svc.remove_item(acct, name, q)
 
-                # 3) 레시피 매칭 → 성공 시 결과 지급 + 공개레시피(선택) 기록
-                match = self.sh.find_recipe(ings)
-                if match:
-                    out_item, out_qty = match
-                    self.svc.add_item(acct, out_item, out_qty)
+                if not match:
+                    # 제작 실패
+                    msg = (
+                        "재료를 한데 넣고 섞어보자. 무엇이 나올까?\n\n"
+                        "⋯아무도 보지 않을 때 몰래 버리자.\n"
+                        "제작 실패 ― 사용 재료 소모"
+                    )
+                    return self.bot.reply(st, msg)
 
-                    # 공개 레시피 자동 기재 유지 (성공시에만)
-                    key = Sheets.norm_key(ings)
-                    self.sh.public_recipe_append(
-                        out_item, out_qty, key, acct, nick, today_str()
-                    )
+                out_item, out_qty = match
 
-                    return self.bot.reply(
-                        st, f"{nick}이/가 제작을 완료했습니다. → {out_item} x{out_qty}"
-                    )
-                else:
-                    # 매칭 실패: 재료는 이미 소모됨
-                    return self.bot.reply(
-                        st, f"레시피가 없습니다. 입력한 재료는 소모되었습니다."
-                    )
+                # 결과 지급
+                self.svc.add_item(acct, out_item, out_qty)
+
+                # 공개 레시피 기록
+                key = Sheets.norm_key(ings)
+                self.sh.public_recipe_append(out_item, out_qty, key, acct, nick, today_str())
+
+                msg = (
+                    "재료를 한데 넣고 섞어보자. 무엇이 나올까?\n\n"
+                    f"{out_item} 이/가 완성되었다!\n"
+                    f"제작 성공 ― {out_item}x{out_qty}"
+                )
+                return self.bot.reply(st, msg)
 
             if cmd == "job":
                 today = today_str()
@@ -367,7 +464,12 @@ class Dispatch:
                 self.svc.add_bal(acct, reward)
                 self.sh.job_append(acct, nick, today, reward)
 
-                return self.bot.reply(st, f"{nick}의 아르바이트가 완료되었습니다. +{reward} {Config.CURRENCY}")
+                msg = (
+                    "노동은 고되나, 본디 남의 주머니에서 돈을 꺼내 가는 건 어려운 일이다.\n\n"
+                    f"보상으로 {reward} {Config.CURRENCY}을 받았다!"
+                )
+                return self.bot.reply(st, msg)
+
 
         except Exception as e:
             logging.exception("processing error")

@@ -252,3 +252,18 @@ class Sheets:
         # 신규
         self.users.append_row([acct, nick, ts, ts])
         self._user_row[acct] = len(self.users.get_all_values())
+
+    def user_exists(self, acct: str) -> bool:
+        """유저목록 시트에 acct가 실제로 존재하면 True.
+        (없으면 새로 만들지 않음 — 오탈자 방지용)"""
+        # 캐시에 있으면 있음
+        if hasattr(self, "_user_row") and acct in self._user_row:
+            return True
+        # 시트 스캔
+        for i, rec in enumerate(self.users.get_all_records(), start=2):
+            if str(rec.get("아이디", "")).strip() == acct:
+                if not hasattr(self, "_user_row"):
+                    self._user_row = {}
+                self._user_row[acct] = i
+                return True
+        return False
