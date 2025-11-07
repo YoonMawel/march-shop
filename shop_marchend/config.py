@@ -27,7 +27,7 @@ class Config:
     SHOP_CACHE_TTL  = 600          # 상점 캐시 TTL(초)
 
     # 답변 텀
-    REPLY_INTERVAL_PER_USER = 8
+    REPLY_INTERVAL_PER_USER = 15
 
     # 통화/체력
     CURRENCY        = "갈레온"       # 인벤토리의 통화 행 이름

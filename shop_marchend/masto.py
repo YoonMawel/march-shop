@@ -25,17 +25,15 @@ class Bot:
         t.start()
 
     def reply(self, status: dict, text: str):
-        """멘션은 유지하고, 유저별 간격에 맞춰 전송을 스케줄링한다."""
-        author = status["account"]["acct"]  # "user" 또는 "user@remote"
+        """멘션은 유지하고, 유저별 고정 지연 후 전송을 스케줄링한다."""
+        author = status["account"]["acct"]
         now = time.monotonic()
         interval = getattr(Config, "REPLY_INTERVAL_PER_USER", 5)
 
+        ready_time = now + interval  #항상 지금으로부터 interval초 뒤
+
         with self._cv:
-            # 유저별 다음 가능 시각 = max(지금, 마지막예약+간격)
-            ready_time = max(now, self._last_sent.get(author, 0.0) + interval)
-            self._last_sent[author] = ready_time
             self._seq += 1
-            # (ready_time, seq, status, text, author)를 힙에 푸시
             heapq.heappush(self._pq, (ready_time, self._seq, status, text, author))
             self._cv.notify()
 

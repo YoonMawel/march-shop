@@ -415,7 +415,7 @@ class Dispatch:
                     row = self.sh.row_of(name)
                     owned = self.sh.read_int(row, user_col)
                     if owned < q:
-                        lack.append(f"{name} x{q}(보유 {owned})")
+                        lack.append(f"{name} x{owned}")
 
                 if lack:
                     # 오류 1: 재료 부족
